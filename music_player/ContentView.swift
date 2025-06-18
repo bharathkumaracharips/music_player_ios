@@ -8,7 +8,7 @@
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
-import MediaPlayer // <-- Add this import
+import MediaPlayer
 
 // Song model
 struct Song: Identifiable, Equatable {
@@ -27,6 +27,7 @@ struct Song: Identifiable, Equatable {
 struct ContentView: View {
     @EnvironmentObject var songManager: SongManager
     @State private var showFilePicker = false
+    @State private var isNowPlayingPresented = false // NEW: controls Now Playing sheet
 
     var body: some View {
         NavigationStack {
@@ -34,7 +35,10 @@ struct ContentView: View {
                 List {
                     Section(header: Text("Your Songs")) {
                         ForEach(songManager.songs) { song in
-                            Button(action: { songManager.selectedSong = song }) {
+                            Button(action: {
+                                songManager.selectedSong = song
+                                isNowPlayingPresented = true // Open Now Playing sheet
+                            }) {
                                 SongRow(song: song)
                             }
                         }
@@ -58,8 +62,8 @@ struct ContentView: View {
                     loadSongsFromDocuments()
                 }
             }
-            .sheet(item: $songManager.selectedSong) { _ in
-                NowPlayingView()
+            .sheet(isPresented: $isNowPlayingPresented) {
+                NowPlayingView(isPresented: $isNowPlayingPresented)
                     .environmentObject(songManager)
             }
             .onAppear {
@@ -127,7 +131,7 @@ struct SongRow: View {
 class SongManager: ObservableObject {
     @Published var songs: [Song] = []
     @Published var selectedSong: Song? = nil
-    @Published var isShuffle: Bool = false // <-- Add this
+    @Published var isShuffle: Bool = false
 
     private var shuffledIndices: [Int] = []
     private var currentShuffleIndex: Int = 0
@@ -181,7 +185,7 @@ class SongManager: ObservableObject {
 
 struct NowPlayingView: View {
     @EnvironmentObject var songManager: SongManager
-    @Environment(\.dismiss) var dismiss
+    @Binding var isPresented: Bool // NEW: controls dismissal
     @State private var audioPlayer: AVAudioPlayer? = nil
     @State private var isPlaying = false
     @State private var progress: Double = 0
@@ -241,7 +245,7 @@ struct NowPlayingView: View {
             }
             Spacer()
             Button("Dismiss") {
-                songManager.selectedSong = nil
+                isPresented = false // Dismiss the sheet
             }
             .padding(.bottom)
         }
@@ -290,6 +294,23 @@ struct NowPlayingView: View {
             }
             return .commandFailed
         }
+        // --- Add these for next/previous track support ---
+        commandCenter.nextTrackCommand.addTarget { _ in
+            if let song = songManager.selectedSong {
+                songManager.selectNext(current: song)
+                // playCurrentSong() will be called by .onChange(of: songManager.selectedSong)
+                return .success
+            }
+            return .commandFailed
+        }
+        commandCenter.previousTrackCommand.addTarget { _ in
+            if let song = songManager.selectedSong {
+                songManager.selectPrevious(current: song)
+                // playCurrentSong() will be called by .onChange(of: songManager.selectedSong)
+                return .success
+            }
+            return .commandFailed
+        }
     }
 
     func updateNowPlayingInfo() {
@@ -316,7 +337,7 @@ struct NowPlayingView: View {
             audioPlayer?.prepareToPlay()
             audioPlayer?.play()
             isPlaying = true
-            updateNowPlayingInfo() // <-- Add this
+            updateNowPlayingInfo()
             startTimer()
         } catch {
             print("Error loading audio: \(error)")
@@ -333,7 +354,7 @@ struct NowPlayingView: View {
             isPlaying = true
             startTimer()
         }
-        updateNowPlayingInfo() // <-- Add this
+        updateNowPlayingInfo()
     }
     
     func previousSong() {
