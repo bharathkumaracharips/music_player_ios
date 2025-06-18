@@ -29,22 +29,9 @@
 		158C9B482E0297F900B7558D /* music_playerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = music_playerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		1518A2F72E02C074005B93CD /* Exceptions for "music_player" folder in "music_player" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"music-player-Info.plist",
-			);
-			target = 158C9B302E0297F700B7558D /* music_player */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		158C9B332E0297F700B7558D /* music_player */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				1518A2F72E02C074005B93CD /* Exceptions for "music_player" folder in "music_player" target */,
-			);
 			path = music_player;
 			sourceTree = "<group>";
 		};

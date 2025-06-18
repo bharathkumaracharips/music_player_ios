@@ -27,34 +27,73 @@ struct Song: Identifiable, Equatable {
 struct ContentView: View {
     @EnvironmentObject var songManager: SongManager
     @State private var showFilePicker = false
-    @State private var isNowPlayingPresented = false // NEW: controls Now Playing sheet
+    @State private var isNowPlayingPresented = false
+    @State private var searchText = ""
+    @State private var showSearchBar = false
+    @State private var showDeleteSheet = false
+    @State private var showCreatePlaylist = false
+    @State private var showViewPlaylists = false
+
+    var filteredSongs: [Song] {
+        if searchText.isEmpty {
+            return songManager.songs
+        } else {
+            return songManager.songs.filter {
+                $0.title.localizedCaseInsensitiveContains(searchText) ||
+                $0.artist.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
             VStack {
+                // Search bar with close icon, shown only if showSearchBar is true
+                if showSearchBar {
+                    HStack {
+                        TextField("Search songs...", text: $searchText)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                        Button(action: {
+                            searchText = ""
+                            showSearchBar = false
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding([.horizontal, .top])
+                }
                 List {
                     Section(header: Text("Your Songs")) {
-                        ForEach(songManager.songs) { song in
+                        ForEach(filteredSongs) { song in
                             Button(action: {
                                 songManager.selectedSong = song
-                                isNowPlayingPresented = true // Open Now Playing sheet
+                                isNowPlayingPresented = true
                             }) {
                                 SongRow(song: song)
                             }
                         }
                     }
                 }
-                Button(action: { showFilePicker = true }) {
-                    Label("Choose MP3 Files", systemImage: "music.note.list")
-                        .font(.headline)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(12)
-                        .padding([.horizontal, .bottom])
-                }
             }
             .navigationTitle("Library")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    // Hamburger menu
+                    Menu {
+                        Button("Choose MP3", action: { showFilePicker = true })
+                        Button("Delete any MP3", action: { showDeleteSheet = true })
+                        Button("Search", action: { showSearchBar = true })
+                        Divider()
+                        Button("Create Playlist", action: { showCreatePlaylist = true })
+                        Button("View Playlists", action: { showViewPlaylists = true })
+                    } label: {
+                        Image(systemName: "line.3.horizontal")
+                            .imageScale(.large)
+                            .padding(.trailing, 8)
+                    }
+                }
+            }
             .sheet(isPresented: $showFilePicker) {
                 MP3FilePicker { urls in
                     guard let urls = urls else { return }
@@ -64,6 +103,18 @@ struct ContentView: View {
             }
             .sheet(isPresented: $isNowPlayingPresented) {
                 NowPlayingView(isPresented: $isNowPlayingPresented)
+                    .environmentObject(songManager)
+            }
+            .sheet(isPresented: $showDeleteSheet) {
+                DeleteMP3Sheet(isPresented: $showDeleteSheet)
+                    .environmentObject(songManager)
+            }
+            .sheet(isPresented: $showCreatePlaylist) {
+                CreatePlaylistSheet(isPresented: $showCreatePlaylist)
+                    .environmentObject(songManager)
+            }
+            .sheet(isPresented: $showViewPlaylists) {
+                ViewPlaylistsSheet(isPresented: $showViewPlaylists)
                     .environmentObject(songManager)
             }
             .onAppear {
@@ -404,6 +455,77 @@ struct MP3FilePicker: UIViewControllerRepresentable {
         }
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             onPick(nil)
+        }
+    }
+}
+
+struct DeleteMP3Sheet: View {
+    @EnvironmentObject var songManager: SongManager
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(songManager.songs) { song in
+                    HStack {
+                        Text(song.title)
+                        Spacer()
+                        Button(role: .destructive) {
+                            songManager.deleteSong(song)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                    }
+                }
+                .onDelete { indexSet in
+                    for index in indexSet {
+                        let song = songManager.songs[index]
+                        songManager.deleteSong(song)
+                    }
+                }
+            }
+            .navigationTitle("Delete MP3s")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { isPresented = false }
+                }
+            }
+        }
+    }
+}
+
+struct CreatePlaylistSheet: View {
+    @Binding var isPresented: Bool
+    var body: some View {
+        NavigationStack {
+            Text("Create Playlist (stub)")
+                .padding()
+            Button("Done") { isPresented = false }
+                .padding()
+        }
+    }
+}
+
+struct ViewPlaylistsSheet: View {
+    @Binding var isPresented: Bool
+    var body: some View {
+        NavigationStack {
+            Text("View Playlists (stub)")
+                .padding()
+            Button("Done") { isPresented = false }
+                .padding()
+        }
+    }
+}
+
+extension SongManager {
+    func deleteSong(_ song: Song) {
+        if let url = song.url {
+            try? FileManager.default.removeItem(at: url)
+        }
+        songs.removeAll { $0.id == song.id }
+        if selectedSong == song {
+            selectedSong = nil
         }
     }
 }
