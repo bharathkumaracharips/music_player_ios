@@ -72,6 +72,28 @@ struct ContentView: View {
                             }) {
                                 SongRow(song: song)
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    // TODO: Implement add to playlist logic
+                                    songManager.addToPlaylist(song)
+                                } label: {
+                                    Label("Add to Playlist", systemImage: "text.badge.plus")
+                                }
+                                .tint(.blue)
+
+                                Button(role: .destructive) {
+                                    songManager.deleteSong(song)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+
+                                Button {
+                                    songManager.playNext(song)
+                                } label: {
+                                    Label("Play Next", systemImage: "text.insert")
+                                }
+                                .tint(.orange)
+                            }
                         }
                     }
                 }
@@ -527,6 +549,16 @@ extension SongManager {
         if selectedSong == song {
             selectedSong = nil
         }
+    }
+    
+    func addToPlaylist(_ song: Song) {
+        // Implement your playlist logic here
+        print("Add \(song.title) to playlist")
+    }
+
+    func playNext(_ song: Song) {
+        // Implement your play next logic here
+        print("Play \(song.title) next")
     }
 }
 
