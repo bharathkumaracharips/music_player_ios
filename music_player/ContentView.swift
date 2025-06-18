@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
+import MediaPlayer // <-- Add this import
 
 // Song model
 struct Song: Identifiable, Equatable {
@@ -23,19 +24,10 @@ struct Song: Identifiable, Equatable {
     }
 }
 
-// Demo data (no url for static songs)
-let demoSongs = [
-    Song(title: "Blinding Lights", artist: "The Weeknd", album: "After Hours", artwork: "music.note.list", url: nil),
-    Song(title: "Levitating", artist: "Dua Lipa", album: "Future Nostalgia", artwork: "music.mic", url: nil),
-    Song(title: "Peaches", artist: "Justin Bieber", album: "Justice", artwork: "guitars", url: nil),
-    Song(title: "Save Your Tears", artist: "The Weeknd", album: "After Hours", artwork: "headphones", url: nil),
-    Song(title: "Watermelon Sugar", artist: "Harry Styles", album: "Fine Line", artwork: "music.quarternote.3", url: nil)
-]
-
 struct ContentView: View {
     @EnvironmentObject var songManager: SongManager
     @State private var showFilePicker = false
-    
+
     var body: some View {
         NavigationStack {
             VStack {
@@ -65,6 +57,10 @@ struct ContentView: View {
                     importMP3Files(urls)
                     loadSongsFromDocuments()
                 }
+            }
+            .sheet(item: $songManager.selectedSong) { _ in
+                NowPlayingView()
+                    .environmentObject(songManager)
             }
             .onAppear {
                 loadSongsFromDocuments()
@@ -127,6 +123,62 @@ struct SongRow: View {
     }
 }
 
+// SongManager to manage song selection and navigation
+class SongManager: ObservableObject {
+    @Published var songs: [Song] = []
+    @Published var selectedSong: Song? = nil
+    @Published var isShuffle: Bool = false // <-- Add this
+
+    private var shuffledIndices: [Int] = []
+    private var currentShuffleIndex: Int = 0
+
+    func isFirst(song: Song) -> Bool {
+        guard let idx = songs.firstIndex(of: song) else { return true }
+        return idx == 0
+    }
+    func isLast(song: Song) -> Bool {
+        guard let idx = songs.firstIndex(of: song) else { return true }
+        return idx == songs.count - 1
+    }
+    func selectPrevious(current: Song) {
+        if isShuffle {
+            guard !shuffledIndices.isEmpty, let currentIdx = songs.firstIndex(of: current) else { return }
+            if let shufflePos = shuffledIndices.firstIndex(of: currentIdx), shufflePos > 0 {
+                selectedSong = songs[shuffledIndices[shufflePos - 1]]
+            }
+        } else {
+            guard let idx = songs.firstIndex(of: current), idx > 0 else { return }
+            selectedSong = songs[idx - 1]
+        }
+    }
+    func selectNext(current: Song) {
+        if isShuffle {
+            guard !shuffledIndices.isEmpty, let currentIdx = songs.firstIndex(of: current) else { return }
+            if let shufflePos = shuffledIndices.firstIndex(of: currentIdx), shufflePos < shuffledIndices.count - 1 {
+                selectedSong = songs[shuffledIndices[shufflePos + 1]]
+            }
+        } else {
+            guard let idx = songs.firstIndex(of: current), idx < songs.count - 1 else { return }
+            selectedSong = songs[idx + 1]
+        }
+    }
+    func toggleShuffle() {
+        isShuffle.toggle()
+        if isShuffle {
+            shuffledIndices = Array(songs.indices).shuffled()
+            if let current = selectedSong, let idx = songs.firstIndex(of: current) {
+                if let shufflePos = shuffledIndices.firstIndex(of: idx) {
+                    // Move current song to the start of the shuffle
+                    shuffledIndices.remove(at: shufflePos)
+                    shuffledIndices.insert(idx, at: 0)
+                }
+            }
+        } else {
+            shuffledIndices = []
+        }
+    }
+}
+
 struct NowPlayingView: View {
     @EnvironmentObject var songManager: SongManager
     @Environment(\.dismiss) var dismiss
@@ -134,7 +186,7 @@ struct NowPlayingView: View {
     @State private var isPlaying = false
     @State private var progress: Double = 0
     @State private var timer: Timer? = nil
-    
+
     var body: some View {
         let song = songManager.selectedSong
         VStack(spacing: 32) {
@@ -164,7 +216,7 @@ struct NowPlayingView: View {
                     Button(action: previousSong) {
                         Image(systemName: "backward.fill")
                             .font(.largeTitle)
-                    }.disabled(songManager.isFirst(song: song))
+                    }.disabled(songManager.isFirst(song: song) && !songManager.isShuffle)
                     Button(action: togglePlay) {
                         Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 44))
@@ -172,8 +224,20 @@ struct NowPlayingView: View {
                     Button(action: nextSong) {
                         Image(systemName: "forward.fill")
                             .font(.largeTitle)
-                    }.disabled(songManager.isLast(song: song))
+                    }.disabled(songManager.isLast(song: song) && !songManager.isShuffle)
                 }
+                // Shuffle button
+                Button(action: {
+                    songManager.toggleShuffle()
+                }) {
+                    Image(systemName: "shuffle")
+                        .font(.title)
+                        .foregroundColor(songManager.isShuffle ? .blue : .primary)
+                        .padding(8)
+                        .background(songManager.isShuffle ? Color.blue.opacity(0.15) : Color.clear)
+                        .clipShape(Circle())
+                }
+                .accessibilityLabel(songManager.isShuffle ? "Disable Shuffle" : "Enable Shuffle")
             }
             Spacer()
             Button("Dismiss") {
@@ -183,6 +247,8 @@ struct NowPlayingView: View {
         }
         .padding()
         .onAppear {
+            setupAudioSession()
+            setupRemoteTransportControls()
             playCurrentSong()
         }
         .onChange(of: songManager.selectedSong) { _ in
@@ -193,7 +259,52 @@ struct NowPlayingView: View {
             audioPlayer?.stop()
         }
     }
-    
+
+    func setupAudioSession() {
+        // Set audio session for background playback
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Failed to set audio session: \(error)")
+        }
+    }
+
+    func setupRemoteTransportControls() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.playCommand.addTarget { _ in
+            if let player = audioPlayer, !player.isPlaying {
+                player.play()
+                isPlaying = true
+                updateNowPlayingInfo()
+                return .success
+            }
+            return .commandFailed
+        }
+        commandCenter.pauseCommand.addTarget { _ in
+            if let player = audioPlayer, player.isPlaying {
+                player.pause()
+                isPlaying = false
+                updateNowPlayingInfo()
+                return .success
+            }
+            return .commandFailed
+        }
+    }
+
+    func updateNowPlayingInfo() {
+        guard let song = songManager.selectedSong else { return }
+        var nowPlayingInfo: [String: Any] = [
+            MPMediaItemPropertyTitle: song.title,
+            MPMediaItemPropertyArtist: song.artist,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: audioPlayer?.currentTime ?? 0,
+            MPMediaItemPropertyPlaybackDuration: audioPlayer?.duration ?? 0,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
+        ]
+        // Optionally add artwork if you have it
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
+    }
+
     func playCurrentSong() {
         timer?.invalidate()
         audioPlayer?.stop()
@@ -205,12 +316,13 @@ struct NowPlayingView: View {
             audioPlayer?.prepareToPlay()
             audioPlayer?.play()
             isPlaying = true
+            updateNowPlayingInfo() // <-- Add this
             startTimer()
         } catch {
             print("Error loading audio: \(error)")
         }
     }
-    
+
     func togglePlay() {
         guard let player = audioPlayer else { return }
         if player.isPlaying {
@@ -221,6 +333,7 @@ struct NowPlayingView: View {
             isPlaying = true
             startTimer()
         }
+        updateNowPlayingInfo() // <-- Add this
     }
     
     func previousSong() {
@@ -245,29 +358,6 @@ struct NowPlayingView: View {
                 }
             }
         }
-    }
-}
-
-// SongManager to manage song selection and navigation
-class SongManager: ObservableObject {
-    @Published var songs: [Song] = []
-    @Published var selectedSong: Song? = nil
-    
-    func isFirst(song: Song) -> Bool {
-        guard let idx = songs.firstIndex(of: song) else { return true }
-        return idx == 0
-    }
-    func isLast(song: Song) -> Bool {
-        guard let idx = songs.firstIndex(of: song) else { return true }
-        return idx == songs.count - 1
-    }
-    func selectPrevious(current: Song) {
-        guard let idx = songs.firstIndex(of: current), idx > 0 else { return }
-        selectedSong = songs[idx - 1]
-    }
-    func selectNext(current: Song) {
-        guard let idx = songs.firstIndex(of: current), idx < songs.count - 1 else { return }
-        selectedSong = songs[idx + 1]
     }
 }
 
